@@ -12,8 +12,6 @@
 	SOFTWARE.
 */
 
-include("shared.lua")
-
 SFMSOCK_CLIENT_BONES = SFMSOCK_CLIENT_BONES or {}
 
 net.Receive("SFMSOCK_GetBoneData", function()

@@ -14,10 +14,6 @@
 
 require("gwsockets") -- https://github.com/FredyH/GWSockets
 
-AddCSLuaFile("cl_init.lua")
-AddCSLuaFile("shared.lua")
-include("shared.lua")
-
 CreateConVar("sfmsock_restrict", "1", {FCVAR_REPLICATED, FCVAR_ARCHIVE, FCVAR_NOTIFY}, "Restricts SFM SOCK to super admins only.")
 CreateConVar("sfmsock_ip", "ws://localhost:9090/", {FCVAR_PROTECTED, FCVAR_ARCHIVE, FCVAR_NOTIFY}, "The IP address to connect to.")
 

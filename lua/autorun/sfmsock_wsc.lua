@@ -21,5 +21,7 @@ if CLIENT then
 end
 
 if SERVER then
-    include("sfmsock/sv_init.lua")
+	AddCSLuaFile("sfmsock/cl_init.lua")
+	AddCSLuaFile("sfmsock/sh_init.lua")
+    include("sfmsock/init.lua")
 end
