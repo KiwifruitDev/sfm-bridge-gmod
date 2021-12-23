@@ -96,12 +96,17 @@ end
 
 function SFMSOCK_ParseBones(children, dag, parentmatrix, bonetable, isroot)
 	for _, bone in pairs(children) do
+		-- viewtarget check
+		if bone.name == "viewTarget" then
+			dag:SetEyeTarget(LocalToWorld(Vector(bone.transform.position.x, bone.transform.position.y, bone.transform.position.z), Angle(0,0,0), dag:GetPos(), dag:GetAngles()))
+			continue
+		end
 		local childtable = {}
 		-- this is odd, the last character is always a right parenthesis and the first character of the actual name is a left parenthesis but there is a fake name before the parenthesis
 		-- we only want the actual name, so let's avoid the fake name
 		-- remove everything before the first left parenthesis including the left parenthesis
 		local found = string.find(bone.name, "%(")
-		if not found then continue end -- viewtarget?
+		if not found then continue end -- this should not happen
 		childtable.name = bone.name:sub(found + 1)
 		-- remove everything after the last right parenthesis including the right parenthesis
 		childtable.name = childtable.name:sub(1, string.find(childtable.name, "%)") - 1)
@@ -149,12 +154,12 @@ function SFMSOCK_UpdateFrame()
 	local used_ent_indexes = {}
 	if SFMSOCK_FRAME.filmClip.animationSets then
 		for k, v in pairs(SFMSOCK_FRAME.filmClip.animationSets) do
-			if not IsValid(SFMSOCK_DAGS[k]) then
-				SFMSOCK_DAGS[k] = ents.Create("prop_dynamic")
-			end
-			local dag = SFMSOCK_DAGS[k]
-			table.insert(used_ent_indexes, dag:EntIndex())
 			if v.gameModel then
+				if not IsValid(SFMSOCK_DAGS[k]) then
+					SFMSOCK_DAGS[k] = ents.Create("generic_actor")
+				end
+				local dag = SFMSOCK_DAGS[k]
+				table.insert(used_ent_indexes, dag:EntIndex())
 				if not v.gameModel.visible then
 					dag:SetPos(Vector(0,0,0))
 					dag:SetNoDraw(true)
@@ -201,9 +206,6 @@ function SFMSOCK_UpdateFrame()
 						end
 					end
 				end
-			else
-				dag:SetPos(Vector(0,0,0))
-				dag:SetNoDraw(true)
 			end
 		end
 	end
