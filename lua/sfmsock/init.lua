@@ -137,13 +137,13 @@ function SFMSOCK_UpdateFrame()
 		SFMSOCK_CAMERA:SetPos(Vector(camera.transform.position.x, camera.transform.position.y, camera.transform.position.z))
 		-- problem with rotation is that it uses quanternions, so let's convert them into qangles
 		SFMSOCK_CAMERA:SetAngles(QuaternionToAngles(camera.transform.orientation.w, camera.transform.orientation.x, camera.transform.orientation.y, camera.transform.orientation.z))
-	end
-	for _, ply in pairs(player.GetAll()) do
-		if ply:GetNWBool("sfmsock_flipped") then
-			ply:SetViewEntity(SFMSOCK_CAMERA)
-			ply:SetFOV(camera.fieldOfView)
-		else
-			ply:SetViewEntity(ply)
+		for _, ply in pairs(player.GetAll()) do
+			if ply:GetNWBool("sfmsock_flipped") then
+				ply:SetViewEntity(SFMSOCK_CAMERA)
+				ply:SetFOV(camera.fieldOfView)
+			else
+				ply:SetViewEntity(ply)
+			end
 		end
 	end
 	local used_ent_indexes = {}
@@ -216,16 +216,6 @@ function SFMSOCK_UpdateFrame()
 	print("Frame complete")
 end
 
-concommand.Add("sfmsock_update", function(ply, cmd, args)
-	if not IsValid(ply) then return end
-	if GetConVar("sfmsock_restrict"):GetBool() and not ply:IsSuperAdmin() then return end
-	local jsontable = util.TableToJSON({
-		type = "framerequest",
-	})
-	SFMSOCK_WSS:write(jsontable)
-	ply:PrintMessage(HUD_PRINTCONSOLE, "Sent frame update.")
-end, nil, "Update the SFM SOCK frame.", FCVAR_REPLICATED)
-
 local tcp_combo = ""
 local received_first = false
 
@@ -263,7 +253,7 @@ function SFMSOCK_ConnectWSS(url, ply, force)
 			if received_first then
 				tcp_combo = tcp_combo .. msg
 				SFMSOCK_TryJson()
-			elseif string.StartWith(msg, "{\"filmClip\"") then
+			elseif string.find(msg, "\"framedata\"") then
 				tcp_combo = msg
 				received_first = true
 				SFMSOCK_TryJson()
@@ -286,6 +276,6 @@ function SFMSOCK_ConnectWSS(url, ply, force)
 end
 
 -- flip views
-hook.Add("ShowHelp", function(ply)
+hook.Add("ShowSpare1", "Flipper", function(ply)
 	ply:ConCommand("sfmsock_flip")
 end)
