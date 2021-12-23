@@ -1,0 +1,15 @@
+{
+	"title"		:	"SFM SOCK: Send SFM frames to Garry's Mod",
+	"type"		:	"gamemode",
+	"tags"		:	[ "scenic", "movie" ],
+	"ignore"	:
+	[
+		"*.psd",
+		"*.vcproj",
+        "*.svn*",
+        "*.pdn",
+        "*.sfk",
+        "*.veg",
+        "*.git"
+	]
+} 
