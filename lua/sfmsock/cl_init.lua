@@ -15,6 +15,7 @@
 SFMSOCK_CLIENT_BONES = SFMSOCK_CLIENT_BONES or {}
 
 net.Receive("SFMSOCK_GetBoneData", function()
+	local newmatrix = net.ReadMatrix()
 	local ent = net.ReadEntity()
 	local ismade = SFMSOCK_CLIENT_BONES[ent:EntIndex()] ~= nil and true or false
 	local bones = net.ReadTable()
@@ -22,9 +23,10 @@ net.Receive("SFMSOCK_GetBoneData", function()
 	if IsValid(ent) then
 		print("Processing bone data for " .. ent:GetModel())
 	elseif not IsValid(ent) then
-		SFMSOCK_CLIENT_BONES[ent:EntIndex()] = nil
-		print("Could not process bone data for " .. ent:EntIndex() .. " because the entity is invalid.")
 		return
+	end
+	if newmatrix then
+		ent:EnableMatrix("RenderMultiply", newmatrix)
 	end
 	if not ismade then
 		ent:SetRenderBoundsWS(Vector(), Vector(), Vector(16384, 16384, 16384)) -- the entire world
@@ -37,6 +39,8 @@ net.Receive("SFMSOCK_GetBoneData", function()
 						if ent:GetBoneContents(boneindex) ~= 0 then
 							ent:SetBoneMatrix(boneindex, data.matrix)
 						end
+					else
+						print("Could not find bone " .. data.name .. " for " .. ent:GetModel())
 					end
 				end
 			end

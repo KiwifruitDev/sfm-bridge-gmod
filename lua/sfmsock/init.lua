@@ -114,12 +114,17 @@ function SFMSOCK_ParseBones(children, dag, parentmatrix, bonetable, isroot)
 			matrixpos = Matrix()
 			matrixpos:SetTranslation(Vector(bone.transform.position.x, bone.transform.position.y, bone.transform.position.z))
 			local ang = QuaternionToAngles(bone.transform.orientation.w, bone.transform.orientation.x, bone.transform.orientation.y, bone.transform.orientation.z)
-			matrixpos:Rotate(ang)
+			matrixpos:SetAngles(ang)
+			if bone.transform.perAxisScale then -- sfm sock exclusive, does not exist by default
+				matrixpos:Scale(Vector(bone.transform.perAxisScale.x, bone.transform.perAxisScale.y, bone.transform.perAxisScale.z))
+			elseif bone.transform.scale then -- does not exist by default
+				matrixpos:Scale(Vector(bone.transform.scale, bone.transform.scale, bone.transform.scale))
+			end
 			childtable.matrix = parentmatrix * matrixpos
 			if isroot then -- offset by position, can't set this bone directly
 				dag:SetPos(childtable.matrix:GetTranslation())
 				-- angles must be offset from dag:GetAngles
-				dag:SetAngles(childtable.matrix:GetAngles() - dag:GetAngles() - ang)
+				dag:SetAngles(childtable.matrix:GetAngles())
 			end
 			table.insert(bonetable, childtable)
 			if bone.children ~= nil then
@@ -160,7 +165,7 @@ function SFMSOCK_UpdateFrame()
 				end
 				local dag = SFMSOCK_DAGS[k]
 				table.insert(used_ent_indexes, dag:EntIndex())
-				if not v.gameModel.visible then
+				if v.gameModel.visible == false or v.visible == false then
 					dag:SetPos(Vector(0,0,0))
 					dag:SetNoDraw(true)
 					continue
@@ -184,7 +189,22 @@ function SFMSOCK_UpdateFrame()
 				-- transmit
 				if v.gameModel.children ~= nil then
 					net.Start("SFMSOCK_GetBoneData")
-						local bones = SFMSOCK_ParseBones(v.gameModel.children, dag, dag:GetWorldTransformMatrix(), {}, true)
+						local parentmatrix = Matrix()
+						-- these values are used as the parent matrix for parsebones
+						parentmatrix:SetTranslation(dag:GetPos())
+						parentmatrix:SetAngles(dag:GetAngles())
+						if v.gameModel.transform.perAxisScale then -- sfm sock exclusive, does not exist by default
+							parentmatrix:SetScale(Vector(v.gameModel.transform.perAxisScale.x, v.gameModel.transform.perAxisScale.y, v.gameModel.transform.perAxisScale.z))
+						elseif v.gameModel.transform.scale then -- does not exist by default
+							parentmatrix:SetScale(Vector(v.gameModel.transform.scale, v.gameModel.transform.scale, v.gameModel.transform.scale))
+						else
+							parentmatrix:SetScale(Vector(1,1,1))
+						end
+						local bones = SFMSOCK_ParseBones(v.gameModel.children, dag, parentmatrix, {}, true)
+						-- the translation and angles aren't needed anymore, so let's remove them
+						parentmatrix:SetTranslation(Vector(0,0,0))
+						parentmatrix:SetAngles(Angle(0,0,0))
+						net.WriteMatrix(parentmatrix)
 						net.WriteEntity(dag)
 						if bones then
 							net.WriteTable(bones)
