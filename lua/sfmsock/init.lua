@@ -147,7 +147,6 @@ function SFMSOCK_UpdateFrame()
 		end
 	end
 	local used_ent_indexes = {}
-	PrintTable(SFMSOCK_FRAME)
 	if SFMSOCK_FRAME.filmClip.animationSets then
 		for k, v in pairs(SFMSOCK_FRAME.filmClip.animationSets) do
 			if not IsValid(SFMSOCK_DAGS[k]) then
