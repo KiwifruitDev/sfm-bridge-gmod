@@ -147,6 +147,7 @@ function SFMSOCK_UpdateFrame()
 		end
 	end
 	local used_ent_indexes = {}
+	PrintTable(SFMSOCK_FRAME)
 	if SFMSOCK_FRAME.filmClip.animationSets then
 		for k, v in pairs(SFMSOCK_FRAME.filmClip.animationSets) do
 			if not IsValid(SFMSOCK_DAGS[k]) then
@@ -251,9 +252,10 @@ function SFMSOCK_ConnectWSS(url, ply, force)
 		function SFMSOCK_WSS:onMessage(msg)
 			-- we need to recieve multiple TCP packets
 			if received_first then
+				print("Recieved more data, concatenating")
 				tcp_combo = tcp_combo .. msg
 				SFMSOCK_TryJson()
-			elseif string.find(msg, "\"framedata\"") then
+			elseif string.StartWith(msg, "{") then
 				tcp_combo = msg
 				received_first = true
 				SFMSOCK_TryJson()
