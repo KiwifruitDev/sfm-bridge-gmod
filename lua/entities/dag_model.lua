@@ -14,20 +14,24 @@
 
 AddCSLuaFile()
 
-ENT.Base = "base_entity"
+ENT.Base = "dag"
 ENT.Type = "anim"
 
 ENT.Spawnable = false
 ENT.AdminOnly = true
 
-ENT.PrintName = "Dag"
+ENT.PrintName = "Model Dag"
 ENT.Author = "KiwiFruitDev"
 ENT.Category = "SFM SOCK"
-ENT.Purpose = "Used to represent Source Filmmaker dags within Garry's Mod."
+ENT.Purpose = "Used to represent Source Filmmaker models within Garry's Mod."
 ENT.Instructions = "Intended for internal use only."
 ENT.Contact = "https://github.com/TeamPopplio/sfmsock-wsc-gmod"
 
 ENT.DisableDuplicator = true
 ENT.DoNotDuplicate = true
 
-ENT.IsDag = true
+ENT.IsModelDag = true
+
+function ENT:Draw()
+    self:DrawModel()
+end 

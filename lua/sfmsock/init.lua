@@ -19,6 +19,7 @@ CreateConVar("sfmsock_ip", "ws://localhost:9090/", {FCVAR_PROTECTED, FCVAR_ARCHI
 
 util.AddNetworkString("SFMSOCK_GetBoneData")
 util.AddNetworkString("SFMSOCK_StopBoneData")
+util.AddNetworkString("SFMSOCK_SetupLight")
 
 local MODEL_REPLACEMENTS = {
 	-- [modelname] = replacementmodel
@@ -145,6 +146,7 @@ function SFMSOCK_UpdateFrame()
 	local camera = SFMSOCK_FRAME.filmClip.camera
 	if camera then
 		SFMSOCK_CAMERA:SetModel("models/dav0r/camera.mdl")
+		SFMSOCK_CAMERA:DrawShadow(false)
 		SFMSOCK_FOV = camera.fieldOfView
 		SFMSOCK_CAMERA:SetPos(Vector(camera.transform.position.x, camera.transform.position.y, camera.transform.position.z))
 		-- problem with rotation is that it uses quanternions, so let's convert them into qangles
@@ -165,9 +167,9 @@ function SFMSOCK_UpdateFrame()
 				local created = false
 				if not IsValid(SFMSOCK_DAGS[k]) then
 					created = true
-					SFMSOCK_DAGS[k] = ents.Create(v.overrideEntity and v.overrideEntity or "dag")
+					SFMSOCK_DAGS[k] = ents.Create(v.overrideEntity and v.overrideEntity or "dag_model")
 					SFMSOCK_DAGS[k]:SetBloodColor(DONT_BLEED)
-				elseif SFMSOCK_DAGS[k]:GetClass() ~= v.overrideEntity and v.overrideEntity then
+				elseif SFMSOCK_DAGS[k]:GetClass() ~= "dag_model" and not v.overrideEntity or SFMSOCK_DAGS[k]:GetClass() ~= v.overrideEntity and v.overrideEntity then
 					SFMSOCK_DAGS[k]:Remove()
 					created = true
 					SFMSOCK_DAGS[k] = ents.Create(v.overrideEntity)
@@ -178,10 +180,12 @@ function SFMSOCK_UpdateFrame()
 					continue
 				end
 				local dag = SFMSOCK_DAGS[k]
+				dag:DrawShadow(true)
 				table.insert(used_ent_indexes, dag:EntIndex())
-				if v.gameModel.visible == false or v.visible == false then
+				if v.gameModel.visible == false then -- TODO: somehow add the scene object visibility
 					dag:SetPos(Vector(0,0,0))
 					dag:SetNoDraw(true)
+					print("[SFMSOCK] Entity " .. k .. " is invisible")
 					continue
 				end
 				dag:SetNoDraw(false)
@@ -284,6 +288,77 @@ function SFMSOCK_UpdateFrame()
 						end
 					end
 				end
+			elseif v.light then
+				local created = false
+				if not IsValid(SFMSOCK_DAGS[k]) then
+					created = true
+					SFMSOCK_DAGS[k] = ents.Create(v.overrideEntity and v.overrideEntity or "dag_light")
+				elseif SFMSOCK_DAGS[k]:GetClass() ~= "dag_light" and not v.overrideEntity or SFMSOCK_DAGS[k]:GetClass() ~= v.overrideEntity and v.overrideEntity then
+					SFMSOCK_DAGS[k]:Remove()
+					created = true
+					SFMSOCK_DAGS[k] = ents.Create(v.overrideEntity)
+				end
+				if not IsValid(SFMSOCK_DAGS[k]) then
+					print("[SFMSOCK] Could not create entity type " .. v.overrideEntity)
+					SFMSOCK_DAGS[k] = nil
+					continue
+				end
+				local dag = SFMSOCK_DAGS[k]
+				dag:DrawShadow(false)
+				table.insert(used_ent_indexes, dag:EntIndex())
+				dag:SetPos(Vector(v.light.transform.position.x, v.light.transform.position.y, v.light.transform.position.z))
+				dag:SetAngles(QuaternionToAngles(v.light.transform.orientation.w, v.light.transform.orientation.x, v.light.transform.orientation.y, v.light.transform.orientation.z))
+				-- set network vars
+				dag:SetLightDagTexture(v.light.texture)
+				dag:SetLightDagFarZ(v.light.maxDistance)
+				dag:SetLightDagNearZ(v.light.minDistance)
+				dag:SetLightDagVerticalFOV(v.light.verticalFOV)
+				dag:SetLightDagHorizontalFOV(v.light.horizontalFOV)
+				dag:SetLightDagShadowDepthBias(v.light.shadowDepthBias)
+				dag:SetLightDagShadowSlopeScaleDepthBias(v.light.shadowSlopeScaleDepthBias)
+				dag:SetLightDagShadowFilterSize(v.light.shadowFilterSize)
+				dag:SetLightDagConstantAttenuation(v.light.constantAttenuation)
+				dag:SetLightDagLinearAttenuation(v.light.linearAttenuation)
+				dag:SetLightDagQuadraticAttenuation(v.light.quadraticAttenuation)
+				if v.light.textureFrame then
+					dag:SetLightDagTextureFrame(v.textureFrame) -- exclusive to SFM SOCK
+				end
+				dag:SetLightDagColorR(v.light.color.r)
+				dag:SetLightDagColorG(v.light.color.g)
+				dag:SetLightDagColorB(v.light.color.b)
+				dag:SetLightDagColorA(v.light.color.a)
+				dag:SetLightDagBrightness(v.light.intensity)
+				dag:SetLightDagOrthoLeft(v.orthoLeft or 0) -- exclusive to SFM SOCK
+				dag:SetLightDagOrthoRight(v.orthoRight or 0) -- exclusive to SFM SOCK
+				dag:SetLightDagOrthoTop(v.orthoTop or 0) -- exclusive to SFM SOCK
+				dag:SetLightDagOrthoBottom(v.light.orthoBottom or 0) -- exclusive to SFM SOCK
+				dag:SetLightDagCastShadows(v.light.castsShadows)
+				dag:SetLightDagVolumetric(v.light.volumetric)
+				dag:SetLightDagOrtho(v.ortho or false) -- exclusive to SFM SOCK
+				if v.light.visible == false then -- TODO: somehow add the scene object visibility
+					dag:SetLightDagVisible(false)
+				else
+					dag:SetLightDagVisible(true)
+				end
+				if created then
+					dag:Spawn()
+				end
+				print("Created light " .. v.light.name)
+				-- delay?
+				-- TODO: just send all of the variables through the network instead of relying on networked vars
+				timer.Simple(0.1, function()
+					if IsValid(dag) then
+						net.Start("SFMSOCK_SetupLight")
+							net.WriteEntity(dag)
+						net.Broadcast()
+					end
+				end)
+			elseif v["particle system"] then
+				print("[SFMSOCK] WARNING: Particles are not yet implemented.")
+			elseif v.camera then
+				continue -- useless
+			else
+				print("[SFMSOCK] WARNING: Can't determine the dag type of " .. v.name .. "! If this is in error, please create an issue on GitHub.")
 			end
 		end
 	end

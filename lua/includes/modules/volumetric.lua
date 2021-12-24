@@ -12,22 +12,4 @@
 	SOFTWARE.
 */
 
-AddCSLuaFile()
-
-ENT.Base = "base_entity"
-ENT.Type = "anim"
-
-ENT.Spawnable = false
-ENT.AdminOnly = true
-
-ENT.PrintName = "Dag"
-ENT.Author = "KiwiFruitDev"
-ENT.Category = "SFM SOCK"
-ENT.Purpose = "Used to represent Source Filmmaker dags within Garry's Mod."
-ENT.Instructions = "Intended for internal use only."
-ENT.Contact = "https://github.com/TeamPopplio/sfmsock-wsc-gmod"
-
-ENT.DisableDuplicator = true
-ENT.DoNotDuplicate = true
-
-ENT.IsDag = true
+-- This file is intentionally left blank to prevent errors.

@@ -26,6 +26,14 @@ concommand.Add("sfmsock_cl_flush", function()
 	end
 end)
 
+net.Receive("SFMSOCK_SetupLight", function()
+	local ent = net.ReadEntity()
+	if not IsValid(ent) then return end
+	if not ent.IsLightDag then return end
+	print("[SFMSOCK] Setting up light for entity index " .. ent:EntIndex())
+	ent:InitializeLight()
+end)
+
 net.Receive("SFMSOCK_StopBoneData", function()
 	local ent = net.ReadEntity()
 	SFMSOCK_CLIENT_BONES[ent:EntIndex()] = nil
