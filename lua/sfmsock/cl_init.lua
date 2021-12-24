@@ -13,6 +13,27 @@
 */
 
 SFMSOCK_CLIENT_BONES = SFMSOCK_CLIENT_BONES or {}
+SFMSOCK_CLIENT_CALLBACKS = SFMSOCK_CLIENT_CALLBACKS or {}
+
+concommand.Add("sfmsock_cl_flush", function()
+	SFMSOCK_CLIENT_BONES = {}
+	for k, v in pairs(SFMSOCK_CLIENT_CALLBACKS) do
+		local ent = ents.GetByIndex(k)
+		if IsValid(ent) then
+			ent:RemoveCallback("BuildBonePositions", v)
+		end
+		SFMSOCK_CLIENT_CALLBACKS[k] = nil
+	end
+end)
+
+net.Receive("SFMSOCK_StopBoneData", function()
+	local ent = net.ReadEntity()
+	SFMSOCK_CLIENT_BONES[ent:EntIndex()] = nil
+	if SFMSOCK_CLIENT_CALLBACKS[ent:EntIndex()] then
+		ent:RemoveCallback("BuildBonePositions", SFMSOCK_CLIENT_CALLBACKS[ent:EntIndex()])
+		SFMSOCK_CLIENT_CALLBACKS[ent:EntIndex()] = nil
+	end
+end)
 
 net.Receive("SFMSOCK_GetBoneData", function()
 	local newmatrix = net.ReadMatrix()
@@ -31,7 +52,7 @@ net.Receive("SFMSOCK_GetBoneData", function()
 	if not ismade then
 		ent:SetRenderBoundsWS(Vector(), Vector(), Vector(16384, 16384, 16384)) -- the entire world
 		ent:SetLOD(0)
-		ent:AddCallback( "BuildBonePositions", function( ent, numbones )
+		SFMSOCK_CLIENT_CALLBACKS[ent:EntIndex()] = ent:AddCallback("BuildBonePositions", function( ent, numbones )
 			if SFMSOCK_CLIENT_BONES[ent:EntIndex()] then
 				for _, data in pairs(SFMSOCK_CLIENT_BONES[ent:EntIndex()]) do
 					local boneindex = ent:LookupBone(data.name)
@@ -39,11 +60,9 @@ net.Receive("SFMSOCK_GetBoneData", function()
 						if ent:GetBoneContents(boneindex) ~= 0 then
 							ent:SetBoneMatrix(boneindex, data.matrix)
 						end
-					else
-						print("Could not find bone " .. data.name .. " for " .. ent:GetModel())
 					end
 				end
 			end
-		end )
+		end)
 	end
 end)

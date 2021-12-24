@@ -18,7 +18,7 @@ CreateConVar("sfmsock_restrict", "1", {FCVAR_REPLICATED, FCVAR_ARCHIVE, FCVAR_NO
 CreateConVar("sfmsock_ip", "ws://localhost:9090/", {FCVAR_PROTECTED, FCVAR_ARCHIVE, FCVAR_NOTIFY}, "The IP address to connect to.")
 
 util.AddNetworkString("SFMSOCK_GetBoneData")
-util.AddNetworkString("SFMSOCK_ResetBones")
+util.AddNetworkString("SFMSOCK_StopBoneData")
 
 local MODEL_REPLACEMENTS = {
 	-- [modelname] = replacementmodel
@@ -37,9 +37,11 @@ concommand.Add("sfmsock_flip", function(ply, cmd, args)
 	if ply:GetNWBool("sfmsock_flipped") then
 		ply:SetViewEntity(SFMSOCK_CAMERA)
 		ply:SetFOV(SFMSOCK_FOV or 100)
+		ply:SendLua("gui.EnableScreenClicker(true);gui.SetMousePos(ScrW() / 2, ScrH() / 2)")
 	else
 		ply:SetViewEntity(ply)
 		ply:SetFOV(100)
+		ply:SendLua("gui.EnableScreenClicker(false);gui.SetMousePos(ScrW() / 2, ScrH() / 2)")
 	end
 end, nil, "Flip between camera view and game view.", FCVAR_REPLICATED)
 
@@ -160,8 +162,20 @@ function SFMSOCK_UpdateFrame()
 	if SFMSOCK_FRAME.filmClip.animationSets then
 		for k, v in pairs(SFMSOCK_FRAME.filmClip.animationSets) do
 			if v.gameModel then
+				local created = false
 				if not IsValid(SFMSOCK_DAGS[k]) then
-					SFMSOCK_DAGS[k] = ents.Create("generic_actor")
+					created = true
+					SFMSOCK_DAGS[k] = ents.Create(v.overrideEntity and v.overrideEntity or "dag")
+					SFMSOCK_DAGS[k]:SetBloodColor(DONT_BLEED)
+				elseif SFMSOCK_DAGS[k]:GetClass() ~= v.overrideEntity and v.overrideEntity then
+					SFMSOCK_DAGS[k]:Remove()
+					created = true
+					SFMSOCK_DAGS[k] = ents.Create(v.overrideEntity)
+				end
+				if not IsValid(SFMSOCK_DAGS[k]) then
+					print("[SFMSOCK] Could not create entity type " .. v.overrideEntity)
+					SFMSOCK_DAGS[k] = nil
+					continue
 				end
 				local dag = SFMSOCK_DAGS[k]
 				table.insert(used_ent_indexes, dag:EntIndex())
@@ -172,7 +186,7 @@ function SFMSOCK_UpdateFrame()
 				end
 				dag:SetNoDraw(false)
 				-- this dag is a model
-				local model = Model(v.gameModel.modelName)
+				local model = Model(v.overrideModel and v.overrideModel or v.gameModel.modelName)
 				if MODEL_REPLACEMENTS[model] then
 					if util.IsValidModel(MODEL_REPLACEMENTS[model]) then
 						model = MODEL_REPLACEMENTS[model]
@@ -181,13 +195,35 @@ function SFMSOCK_UpdateFrame()
 				if not util.IsValidModel(model) then
 					model = "models/error.mdl"
 				end
-				dag:SetModel(model)
+				if not v.noModel then
+					dag:SetModel(model)
+				end
 				dag:SetPos(Vector(v.gameModel.transform.position.x, v.gameModel.transform.position.y, v.gameModel.transform.position.z))
 				dag:SetAngles(QuaternionToAngles(v.gameModel.transform.orientation.w, v.gameModel.transform.orientation.x, v.gameModel.transform.orientation.y, v.gameModel.transform.orientation.z))
 				-- TODO: figure out how bodygroups (v.gameModel.body) are calculated and apply them here
 				dag:SetSkin(v.gameModel.skin)
+				-- physics if applicable
+				if v.physics == true and created then
+					dag:SetMoveType(MOVETYPE_VPHYSICS)
+					dag:PhysicsInit(SOLID_VPHYSICS)
+					dag:SetSolid(SOLID_VPHYSICS)
+				elseif not v.physics and created then
+					dag:SetMoveType(MOVETYPE_NONE)
+					dag:SetSolid(SOLID_NONE)
+					dag:PhysicsDestroy()
+				end
+				if v.vehicle then
+					local vehicle = list.Get("Vehicles")[v.vehicle or "Jeep"]
+					if not vehicle then
+						print("[SFMSOCK] Could not find vehicle " .. v.vehicle)
+					else
+						for k, v in pairs(vehicle.KeyValues) do
+							dag:SetKeyValue(k, v)
+						end
+					end
+				end
 				-- transmit
-				if v.gameModel.children ~= nil then
+				if v.gameModel.children ~= nil and not v.noBones then -- sfm sock exclusive
 					net.Start("SFMSOCK_GetBoneData")
 						local parentmatrix = Matrix()
 						-- these values are used as the parent matrix for parsebones
@@ -205,6 +241,15 @@ function SFMSOCK_UpdateFrame()
 						parentmatrix:SetTranslation(Vector(0,0,0))
 						parentmatrix:SetAngles(Angle(0,0,0))
 						net.WriteMatrix(parentmatrix)
+						if created then
+							dag:Spawn()
+						end
+						if v.physics == true then
+							local phys = dag:GetPhysicsObject()
+							if IsValid(phys) then
+								phys:Wake()
+							end
+						end
 						net.WriteEntity(dag)
 						if bones then
 							net.WriteTable(bones)
@@ -212,6 +257,19 @@ function SFMSOCK_UpdateFrame()
 							net.WriteUInt(0, 8) -- ???
 							print("No bones found for " .. ent:GetModel())
 						end
+					net.Broadcast()
+				elseif v.noBones == true then
+					if created then
+						dag:Spawn()
+					end
+					if v.physics == true then
+						local phys = dag:GetPhysicsObject()
+						if IsValid(phys) then
+							phys:Wake()
+						end
+					end
+					net.Start("SFMSOCK_StopBoneData")
+						net.WriteEntity(dag)
 					net.Broadcast()
 				end
 				-- flexes :)
@@ -242,18 +300,17 @@ local tcp_combo = ""
 local received_first = false
 
 function SFMSOCK_TryJson()
-	print("Recieved data, trying to parse as json")
 	local tryjson = util.JSONToTable(tcp_combo) or false
 	if tryjson ~= false then
 		-- we have a complete JSON packet
 		if tryjson.type == "framedata" then
-			print("Got frame data")
+			print("Successfully parsed frame data")
 			SFMSOCK_FRAME = tryjson
 			SFMSOCK_UpdateFrame()
 			tcp_combo = ""
 			received_first = false
 		else
-			print("Got unknown data type")
+			print("Recieved unknown data type, is this client up to date?")
 			tcp_combo = ""
 			received_first = false
 		end
@@ -277,6 +334,7 @@ function SFMSOCK_ConnectWSS(url, ply, force)
 				tcp_combo = tcp_combo .. msg
 				SFMSOCK_TryJson()
 			elseif string.StartWith(msg, "{") then
+				print("Recieved first data")
 				tcp_combo = msg
 				received_first = true
 				SFMSOCK_TryJson()
