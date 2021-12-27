@@ -15,11 +15,25 @@
 require("gwsockets") -- https://github.com/FredyH/GWSockets
 
 CreateConVar("sfmsock_restrict", "1", {FCVAR_REPLICATED, FCVAR_ARCHIVE, FCVAR_NOTIFY}, "Restricts SFM SOCK to super admins only.")
-CreateConVar("sfmsock_ip", "ws://localhost:9090/", {FCVAR_PROTECTED, FCVAR_ARCHIVE, FCVAR_NOTIFY}, "The IP address to connect to.")
+CreateConVar("sfmsock_ip", "ws://localhost:9090/", {FCVAR_PROTECTED, FCVAR_ARCHIVE}, "The IP address to connect to.")
+local debug = CreateConVar("sfmsock_debug", "0", {FCVAR_REPLICATED, FCVAR_ARCHIVE}, "Enables debug messages.")
 
 util.AddNetworkString("SFMSOCK_GetBoneData")
 util.AddNetworkString("SFMSOCK_StopBoneData")
 util.AddNetworkString("SFMSOCK_SetupLight")
+util.AddNetworkString("SFMSOCK_PlayBoneData")
+util.AddNetworkString("SFMSOCK_StopBoneDataMovie")
+util.AddNetworkString("SFMSOCK_PauseBoneData")
+util.AddNetworkString("SFMSOCK_ResumeBoneData")
+util.AddNetworkString("SFMSOCK_GoToBoneData")
+util.AddNetworkString("SFMSOCK_ClearBoneData")
+util.AddNetworkString("SFMSOCK_MovieFrame")
+
+local function printdebug(...)
+	if debug:GetBool() then
+		print(...)
+	end
+end
 
 local MODEL_REPLACEMENTS = {
 	-- [modelname] = replacementmodel
@@ -79,13 +93,15 @@ SFMSOCK_DAGS = SFMSOCK_DAGS or {}
 SFMSOCK_BONEDATA = SFMSOCK_BONEDATA or {}
 SFMSOCK_BONEDATA_ENTS = SFMSOCK_BONEDATA_ENTS or {}
 
+SFMSOCK_FRAME_RATE = SFMSOCK_FRAME_RATE or 24
+SFMSOCK_CURRENT_FRAME = SFMSOCK_CURRENT_FRAME or 0
+
 local bonestoignore = {
-	-- fingers are currently not supported
-	//"thumb",
-	//"middle",
-	//"ring",
-	//"pinky",
-	//"index",
+	-- useful if specific bones cause issues, ignores itself and all children
+	-- you should probably submit an issue on github if you ever need to use this
+	-- https://github.com/TeamPopplio/sfmsock-wsc-gmod/issues
+	-- managed to figure out what's wrong with it? share :)
+	-- https://github.com/TeamPopplio/sfmsock-wsc-gmod/pulls
 }
 
 local function ShouldIngoreBone(bone)
@@ -97,7 +113,7 @@ local function ShouldIngoreBone(bone)
 	return false
 end
 
-function SFMSOCK_ParseBones(children, dag, parentmatrix, bonetable, isroot)
+function SFMSOCK_ParseBones(children, dag, parentmatrix, bonetable, isroot, lastparent)
 	for _, bone in pairs(children) do
 		-- viewtarget check
 		if bone.name == "viewTarget" then
@@ -124,6 +140,7 @@ function SFMSOCK_ParseBones(children, dag, parentmatrix, bonetable, isroot)
 				matrixpos:Scale(Vector(bone.transform.scale, bone.transform.scale, bone.transform.scale))
 			end
 			childtable.matrix = parentmatrix * matrixpos
+			childtable.parent = lastparent
 			if isroot then -- offset by position, can't set this bone directly
 				dag:SetPos(childtable.matrix:GetTranslation())
 				-- angles must be offset from dag:GetAngles
@@ -131,17 +148,39 @@ function SFMSOCK_ParseBones(children, dag, parentmatrix, bonetable, isroot)
 			end
 			table.insert(bonetable, childtable)
 			if bone.children ~= nil then
-				SFMSOCK_ParseBones(bone.children, dag, childtable.matrix, bonetable, false)
+				SFMSOCK_ParseBones(bone.children, dag, childtable.matrix, bonetable, false, childtable.id)
 			end
 		end
 	end
 	return bonetable
 end
 
-function SFMSOCK_UpdateFrame()
+local function AccumulateParents(dag, bonematrix, parentid)
+	-- reapply all parent matrixes (used to remove the offsets)
+	local newmatrix = bonematrix
+	local newparentid = parentid
+	if newparentid then
+		while newparentid > 0 do
+			parentmatrix = dag:GetBoneMatrix(newparentid)
+			if parentmatrix then
+				local parentlocalpos = dag:WorldToLocal(newmatrix:GetTranslation(), parentmatrix:GetAngles())
+				local parentlocalang = newmatrix:GetAngles() - parentmatrix:GetAngles()
+				newmatrix:SetTranslation(parentmatrix:GetTranslation() + parentlocalpos)
+				newmatrix:SetAngles(parentlocalang)
+				newparentid = newparentid - 1
+			else
+				break
+			end
+		end
+	end
+	return bonematrix
+end
+
+function SFMSOCK_UpdateFrame(updateclients, commit, ismovie, frame)
 	if not IsValid(SFMSOCK_CAMERA) then
 		SFMSOCK_CAMERA = ents.Create("prop_dynamic")
 	end
+	if not SFMSOCK_FRAME.filmClip then return end -- invalid packets?
 	-- main camera
 	local camera = SFMSOCK_FRAME.filmClip.camera
 	if camera then
@@ -165,17 +204,18 @@ function SFMSOCK_UpdateFrame()
 		for k, v in pairs(SFMSOCK_FRAME.filmClip.animationSets) do
 			if v.gameModel then
 				local created = false
-				if not IsValid(SFMSOCK_DAGS[k]) then
+				if not IsValid(SFMSOCK_DAGS[k]) or SFMSOCK_DAGS[k]:GetClass() ~= "dag_model" and not v.overrideEntity then
 					created = true
 					SFMSOCK_DAGS[k] = ents.Create(v.overrideEntity and v.overrideEntity or "dag_model")
 					SFMSOCK_DAGS[k]:SetBloodColor(DONT_BLEED)
-				elseif SFMSOCK_DAGS[k]:GetClass() ~= "dag_model" and not v.overrideEntity or SFMSOCK_DAGS[k]:GetClass() ~= v.overrideEntity and v.overrideEntity then
+				elseif SFMSOCK_DAGS[k]:GetClass() ~= v.overrideEntity and v.overrideEntity then
 					SFMSOCK_DAGS[k]:Remove()
 					created = true
 					SFMSOCK_DAGS[k] = ents.Create(v.overrideEntity)
+					SFMSOCK_DAGS[k]:SetBloodColor(DONT_BLEED)
 				end
 				if not IsValid(SFMSOCK_DAGS[k]) then
-					print("[SFMSOCK] Could not create entity type " .. v.overrideEntity)
+					printdebug("[SFMSOCK] Could not create entity type " .. v.overrideEntity)
 					SFMSOCK_DAGS[k] = nil
 					continue
 				end
@@ -185,7 +225,7 @@ function SFMSOCK_UpdateFrame()
 				if v.gameModel.visible == false then -- TODO: somehow add the scene object visibility
 					dag:SetPos(Vector(0,0,0))
 					dag:SetNoDraw(true)
-					print("[SFMSOCK] Entity " .. k .. " is invisible")
+					printdebug("[SFMSOCK] Entity " .. k .. " is invisible")
 					continue
 				end
 				dag:SetNoDraw(false)
@@ -200,7 +240,9 @@ function SFMSOCK_UpdateFrame()
 					model = "models/error.mdl"
 				end
 				if not v.noModel then
-					dag:SetModel(model)
+					if model ~= dag:GetModel() then
+						dag:SetModel(model)
+					end
 				end
 				dag:SetPos(Vector(v.gameModel.transform.position.x, v.gameModel.transform.position.y, v.gameModel.transform.position.z))
 				dag:SetAngles(QuaternionToAngles(v.gameModel.transform.orientation.w, v.gameModel.transform.orientation.x, v.gameModel.transform.orientation.y, v.gameModel.transform.orientation.z))
@@ -208,18 +250,23 @@ function SFMSOCK_UpdateFrame()
 				dag:SetSkin(v.gameModel.skin)
 				-- physics if applicable
 				if v.physics == true and created then
-					dag:SetMoveType(MOVETYPE_VPHYSICS)
 					dag:PhysicsInit(SOLID_VPHYSICS)
+					dag:SetMoveType(MOVETYPE_VPHYSICS)
 					dag:SetSolid(SOLID_VPHYSICS)
 				elseif not v.physics and created then
+					dag:PhysicsInit(SOLID_NONE)
 					dag:SetMoveType(MOVETYPE_NONE)
 					dag:SetSolid(SOLID_NONE)
+				elseif not v.physics then
 					dag:PhysicsDestroy()
+				end
+				if created then
+					dag:Spawn()
 				end
 				if v.vehicle then
 					local vehicle = list.Get("Vehicles")[v.vehicle or "Jeep"]
 					if not vehicle then
-						print("[SFMSOCK] Could not find vehicle " .. v.vehicle)
+						printdebug("[SFMSOCK] Could not find vehicle " .. v.vehicle)
 					else
 						for k, v in pairs(vehicle.KeyValues) do
 							dag:SetKeyValue(k, v)
@@ -228,41 +275,43 @@ function SFMSOCK_UpdateFrame()
 				end
 				-- transmit
 				if v.gameModel.children ~= nil and not v.noBones then -- sfm sock exclusive
-					net.Start("SFMSOCK_GetBoneData")
-						local parentmatrix = Matrix()
-						-- these values are used as the parent matrix for parsebones
-						parentmatrix:SetTranslation(dag:GetPos())
-						parentmatrix:SetAngles(dag:GetAngles())
-						if v.gameModel.transform.perAxisScale then -- sfm sock exclusive, does not exist by default
-							parentmatrix:SetScale(Vector(v.gameModel.transform.perAxisScale.x, v.gameModel.transform.perAxisScale.y, v.gameModel.transform.perAxisScale.z))
-						elseif v.gameModel.transform.scale then -- does not exist by default
-							parentmatrix:SetScale(Vector(v.gameModel.transform.scale, v.gameModel.transform.scale, v.gameModel.transform.scale))
-						else
-							parentmatrix:SetScale(Vector(1,1,1))
-						end
-						local bones = SFMSOCK_ParseBones(v.gameModel.children, dag, parentmatrix, {}, true)
-						-- the translation and angles aren't needed anymore, so let's remove them
-						parentmatrix:SetTranslation(Vector(0,0,0))
-						parentmatrix:SetAngles(Angle(0,0,0))
-						net.WriteMatrix(parentmatrix)
-						if created then
-							dag:Spawn()
-						end
-						if v.physics == true then
-							local phys = dag:GetPhysicsObject()
-							if IsValid(phys) then
-								phys:Wake()
+					local parentmatrix = Matrix()
+					-- these values are used as the parent matrix for parsebones
+					parentmatrix:SetTranslation(dag:GetPos())
+					parentmatrix:SetAngles(dag:GetAngles())
+					if v.gameModel.transform.perAxisScale then -- sfm sock exclusive, does not exist by default
+						parentmatrix:SetScale(Vector(v.gameModel.transform.perAxisScale.x, v.gameModel.transform.perAxisScale.y, v.gameModel.transform.perAxisScale.z))
+					elseif v.gameModel.transform.scale then -- does not exist by default
+						parentmatrix:SetScale(Vector(v.gameModel.transform.scale, v.gameModel.transform.scale, v.gameModel.transform.scale))
+					else
+						parentmatrix:SetScale(Vector(1,1,1))
+					end
+					local bones = SFMSOCK_ParseBones(v.gameModel.children, dag, parentmatrix, {}, true, -1)
+					-- the translation and angles aren't needed anymore, so let's remove them
+					parentmatrix:SetTranslation(Vector(0,0,0))
+					parentmatrix:SetAngles(Angle(0,0,0))
+					if updateclients then
+						net.Start("SFMSOCK_GetBoneData")
+							net.WriteBool(commit)
+							net.WriteInt(frame, 32)
+							net.WriteMatrix(parentmatrix)
+							net.WriteEntity(dag)
+							if bones then
+								net.WriteTable(bones)
+							else
+								net.WriteInt(0, 8) -- ???
+								printdebug("No bones found for " .. ent:GetModel())
 							end
-						end
-						net.WriteEntity(dag)
-						if bones then
-							net.WriteTable(bones)
-						else
-							net.WriteUInt(0, 8) -- ???
-							print("No bones found for " .. ent:GetModel())
-						end
-					net.Broadcast()
-				elseif v.noBones == true then
+						net.Broadcast()
+					elseif ismovie then
+						-- client mismatches entity callbacks sometimes, let's correct that
+						net.Start("SFMSOCK_MovieFrame")
+							net.WriteEntity(dag)
+							net.WriteInt(frame, 32)
+						net.Broadcast()
+					end
+				elseif v.noBones == true and not dag.noBones then
+					dag.noBones = true
 					if created then
 						dag:Spawn()
 					end
@@ -278,28 +327,28 @@ function SFMSOCK_UpdateFrame()
 				end
 				-- flexes :)
 				if v.gameModel.globalFlexControllers then
-					print("Building flexes for " .. v.gameModel.modelName)
+					printdebug("Building flexes for " .. v.gameModel.modelName)
 					for k2, v2 in pairs(v.gameModel.globalFlexControllers) do
 						local flex = dag:GetFlexIDByName(v2.name)
 						if flex then
 							dag:SetFlexWeight(flex, v2.flexWeight)
 						else
-							print("Flex " .. v2.name .. " not found in " .. v.gameModel.modelName)
+							printdebug("Flex " .. v2.name .. " not found in " .. v.gameModel.modelName)
 						end
 					end
 				end
 			elseif v.light then
 				local created = false
-				if not IsValid(SFMSOCK_DAGS[k]) then
+				if not IsValid(SFMSOCK_DAGS[k]) or SFMSOCK_DAGS[k]:GetClass() ~= "dag_light" and not v.overrideEntity then
 					created = true
 					SFMSOCK_DAGS[k] = ents.Create(v.overrideEntity and v.overrideEntity or "dag_light")
-				elseif SFMSOCK_DAGS[k]:GetClass() ~= "dag_light" and not v.overrideEntity or SFMSOCK_DAGS[k]:GetClass() ~= v.overrideEntity and v.overrideEntity then
+				elseif SFMSOCK_DAGS[k]:GetClass() ~= v.overrideEntity and v.overrideEntity then
 					SFMSOCK_DAGS[k]:Remove()
 					created = true
 					SFMSOCK_DAGS[k] = ents.Create(v.overrideEntity)
 				end
 				if not IsValid(SFMSOCK_DAGS[k]) then
-					print("[SFMSOCK] Could not create entity type " .. v.overrideEntity)
+					printdebug("[SFMSOCK] Could not create entity type " .. v.overrideEntity)
 					SFMSOCK_DAGS[k] = nil
 					continue
 				end
@@ -343,7 +392,7 @@ function SFMSOCK_UpdateFrame()
 				if created then
 					dag:Spawn()
 				end
-				print("Created light " .. v.light.name)
+				printdebug("Created light " .. v.light.name)
 				-- delay?
 				-- TODO: just send all of the variables through the network instead of relying on networked vars
 				timer.Simple(0.1, function()
@@ -354,11 +403,11 @@ function SFMSOCK_UpdateFrame()
 					end
 				end)
 			elseif v["particle system"] then
-				print("[SFMSOCK] WARNING: Particles are not yet implemented.")
+				printdebug("[SFMSOCK] WARNING: Particles are not yet implemented.")
 			elseif v.camera then
 				continue -- useless
 			else
-				print("[SFMSOCK] WARNING: Can't determine the dag type of " .. v.name .. "! If this is in error, please create an issue on GitHub.")
+				printdebug("[SFMSOCK] WARNING: Can't determine the dag type of " .. v.name .. "! If this is in error, please create an issue on GitHub.")
 			end
 		end
 	end
@@ -368,27 +417,40 @@ function SFMSOCK_UpdateFrame()
 			SFMSOCK_DAGS[k] = nil
 		end
 	end
-	print("Frame complete")
+	printdebug("Frame complete")
 end
 
-local tcp_combo = ""
-local received_first = false
+local tcp_combo = tcp_combo or ""
+local received_first = received_first or false
 
 function SFMSOCK_TryJson()
 	local tryjson = util.JSONToTable(tcp_combo) or false
 	if tryjson ~= false then
+		tcp_combo = ""
+		received_first = false
 		-- we have a complete JSON packet
-		if tryjson.type == "framedata" then
-			print("Successfully parsed frame data")
+		if tryjson.type == "framecommit" then
 			SFMSOCK_FRAME = tryjson
-			SFMSOCK_UpdateFrame()
-			tcp_combo = ""
-			received_first = false
+			if tryjson.currentFrame then
+				printdebug("Successfully parsed frame commit for frame " .. tryjson.currentFrame)
+				SFMSOCK_CURRENT_FRAME = tryjson.currentFrame
+				CommitFrameData(tryjson.currentFrame, tryjson)
+			else
+				printdebug("Successfully parsed frame commit, however no frame was specified.")
+			end
+			if tryjson.frameRate then
+				SFMSOCK_FRAME_RATE = tryjson.frameRate
+			end
+			SFMSOCK_UpdateFrame(true, SFMSOCK_CURRENT_FRAME ~= nil and true or false, false, tryjson.currentFrame or SFMSOCK_CURRENT_FRAME or 0)
+		elseif tryjson.type == "framedata" then
+			printdebug("Successfully parsed frame data")
+			SFMSOCK_FRAME = tryjson
+			SFMSOCK_UpdateFrame(true, false, false, SFMSOCK_CURRENT_FRAME or 0)
 		else
-			print("Recieved unknown data type, is this client up to date?")
-			tcp_combo = ""
-			received_first = false
+			printdebug("Recieved unknown data type, is this client up to date?")
 		end
+	else
+		printdebug("SFM SOCK FAILED TO PARSE JSON")
 	end
 end
 
@@ -397,32 +459,43 @@ function SFMSOCK_ConnectWSS(url, ply, force)
 		if IsValid(ply) then
 			ply:PrintMessage(HUD_PRINTCONSOLE, "SFM SOCK URL is empty, tell the server owner to set it via 'sfmsock_ip' and try again.")
 		end
-		print("Attempted to connect to SFM SOCK with an empty URL, set the URL via 'sfmsock_ip' and try again.")
+		printdebug("Attempted to connect to SFM SOCK with an empty URL, set the URL via 'sfmsock_ip' and try again.")
 	elseif SFMSOCK_WSS and not force and IsValid(ply) then
 		ply:PrintMessage(HUD_PRINTCONSOLE, "SFM SOCK is already connected, try again with 'sfmsock_connect force' if there was a problem.")
 	else
 		SFMSOCK_WSS = GWSockets.createWebSocket(url, false)
 		function SFMSOCK_WSS:onMessage(msg)
 			-- we need to recieve multiple TCP packets
-			if received_first then
-				print("Recieved more data, concatenating")
-				tcp_combo = tcp_combo .. msg
+			if string.StartWith(msg, "!START!") and string.EndsWith(msg, "!END!") then
+				printdebug("Recieved complete data")
+				tcp_combo = string.Replace(string.Replace(msg, "!START!", ""), "!END!", "")
 				SFMSOCK_TryJson()
-			elseif string.StartWith(msg, "{") then
-				print("Recieved first data")
-				tcp_combo = msg
+			elseif string.StartWith(msg, "!START!") then
+				printdebug("Recieved first data")
+				tcp_combo = string.Replace(msg, "!START!", "")
 				received_first = true
+			elseif string.EndsWith(msg, "!END!") then
+				printdebug("Recieved end of data")
+				tcp_combo = tcp_combo .. string.Replace(msg, "!END!", "")
+				received_first = false
 				SFMSOCK_TryJson()
+			elseif received_first then -- in between
+				printdebug("Recieved in-between data, concatenating")
+				tcp_combo = tcp_combo .. msg
+			else
+				printdebug("Recieved data, but we didn't expect it")
 			end
 		end
 		function SFMSOCK_WSS:onError(errMessage)
-			print("SFM SOCK ERROR: " .. errMessage)
+			printdebug("SFM SOCK ERROR: " .. errMessage)
 		end
 		function SFMSOCK_WSS:onConnected()
-			print("SFM SOCK CONNECTED")
+			printdebug("SFM SOCK CONNECTED")
 		end
 		function SFMSOCK_WSS:onDisconnected()
-			print("SFM SOCK DISCONNECTED")
+			tcp_combo = ""
+			received_first = false
+			printdebug("SFM SOCK DISCONNECTED")
 		end
 		SFMSOCK_WSS:open()
 		if IsValid(ply) then
@@ -434,4 +507,191 @@ end
 -- flip views
 hook.Add("ShowSpare1", "Flipper", function(ply)
 	ply:ConCommand("sfmsock_flip")
+end)
+
+-- Movies
+SFMSOCK_MOVIE_DATA = SFMSOCK_MOVIE_DATA or {}
+SFMSOCK_MOVIE_FIRST_FRAME = SFMSOCK_MOVIE_FIRST_FRAME
+SFMSOCK_MOVIE_LAST_FRAME = SFMSOCK_MOVIE_LAST_FRAME
+
+function CommitFrameData(time, frame) -- Commit frames, this is not called when frames are transmitted.
+	StopFrameData()
+	-- set SFMSOCK_MOVIE_FIRST_FRAME and SFMSOCK_MOVIE_LAST_FRAME (even if they're zero)
+	if not SFMSOCK_MOVIE_FIRST_FRAME or SFMSOCK_MOVIE_FIRST_FRAME > time then
+		SFMSOCK_MOVIE_FIRST_FRAME = time
+	end
+	if not SFMSOCK_MOVIE_LAST_FRAME or SFMSOCK_MOVIE_LAST_FRAME < time then
+		SFMSOCK_MOVIE_LAST_FRAME = time
+	end
+    SFMSOCK_MOVIE_DATA[time] = frame -- Doesn't matter if it already exists, it'll overwrite it.
+end
+
+function ClearFrameData()
+	StopFrameData()
+	SFMSOCK_MOVIE_DATA = {}
+	SFMSOCK_MOVIE_FIRST_FRAME = nil
+	SFMSOCK_MOVIE_LAST_FRAME = nil
+	for k, v in pairs(SFMSOCK_DAGS) do
+		if IsValid(v) then
+			v:Remove()
+		end
+	end
+	if IsValid(SFMSOCK_CAMERA) then
+		SFMSOCK_CAMERA:Remove()
+	end
+	/*
+	net.Start("SFMSOCK_ClearBoneData")
+	net.Broadcast()
+	*/
+end
+
+local sfmsock_movie_loop = CreateConVar("sfmsock_movie_loop", "0", {FCVAR_REPLICATED}, "Whether or not to loop the movie.")
+
+function PlayFrameData(startframe, endframe, framerate, reverse) -- Play frames, done through console.
+	-- set SFMSOCK_FRAME for every frame until the end
+	printdebug("Starting playback")
+	-- framerate-based timer
+	timer.Remove("SFMSOCK_PlayFrameData") -- just in case
+	local frame = startframe
+	if not frame then return end
+	timer.Create("SFMSOCK_PlayFrameData", 1 / (framerate or SFMSOCK_FRAME_RATE), 0, function()
+		frame = reverse and (frame - 1) or (frame + 1)
+		SFMSOCK_CURRENT_FRAME = frame
+		if reverse and frame == SFMSOCK_MOVIE_FIRST_FRAME or not reverse and frame == SFMSOCK_MOVIE_LAST_FRAME then
+			if not sfmsock_movie_loop:GetBool() then
+				timer.Remove("SFMSOCK_PlayFrameData")
+				printdebug("Ending playback")
+				return
+			else
+				frame = reverse and SFMSOCK_MOVIE_LAST_FRAME or SFMSOCK_MOVIE_FIRST_FRAME
+			end
+		end
+		if SFMSOCK_MOVIE_DATA[frame] then
+			SetGlobalInt("SFMSOCK_CURRENT_FRAME", frame)
+			printdebug("Playing frame " .. frame)
+			SFMSOCK_FRAME = SFMSOCK_MOVIE_DATA[frame]
+			SFMSOCK_UpdateFrame(false, false, true, frame)
+			hook.Run("SFMSOCK_MovieFrame", frame) -- lua scripters can interface with this
+		end
+	end)
+	/*
+	net.Start("SFMSOCK_PlayBoneData")
+		net.WriteInt(frame, 32)
+		net.WriteInt(endframe or SFMSOCK_MOVIE_LAST_FRAME or SFMSOCK_CURRENT_FRAME, 32)
+		net.WriteInt(framerate or SFMSOCK_FRAME_RATE, 32)
+		net.WriteInt(SFMSOCK_MOVIE_FIRST_FRAME or 0, 32)
+		net.WriteInt(SFMSOCK_MOVIE_LAST_FRAME or 0, 32)
+		net.WriteBool(reverse)
+	net.Broadcast()
+	*/
+end
+
+local movie_paused = movie_paused or false
+local movie_reversed = movie_reversed or false
+
+-- Playhead functions
+function PauseFrameData()
+	timer.Pause("SFMSOCK_PlayFrameData")
+	//net.Start("SFMSOCK_PauseBoneData")
+	//net.Broadcast()
+	movie_paused = true
+end
+
+function ResumeFrameData()
+	timer.UnPause("SFMSOCK_PlayFrameData")
+	//net.Start("SFMSOCK_ResumeBoneData")
+	//net.Broadcast()
+	movie_paused = false
+end
+
+function StopFrameData()
+	movie_paused = false
+	SFMSOCK_CURRENT_FRAME = 0
+	timer.Remove("SFMSOCK_PlayFrameData")
+	//net.Start("SFMSOCK_StopBoneDataMovie")
+	//net.Broadcast()
+end
+
+function GoToFrameData(frame) -- might as well add to make it similar to demos
+	timer.Remove("SFMSOCK_PlayFrameData")
+	SFMSOCK_FRAME = SFMSOCK_MOVIE_DATA[frame] or SFMSOCK_FRAME
+	hook.Run("SFMSOCK_MovieFrame", time)
+	//net.Start("SFMSOCK_GoToBoneData")
+		//net.WriteInt(frame, 32)
+	//net.Broadcast()
+	local endframe = (movie_reversed and SFMSOCK_MOVIE_FIRST_FRAME or SFMSOCK_MOVIE_LAST_FRAME)
+	local framerate = SFMSOCK_FRAME_RATE
+	PlayFrameData(frame, endframe, framerate, movie_reversed)
+end
+
+concommand.Add("sfmsock_movie_play", function(ply, cmd, args)
+	StopFrameData()
+	movie_paused = false
+	SFMSOCK_CURRENT_FRAME = 0
+	local startframe = args[1] and tonumber(args[1]) or (movie_reversed and SFMSOCK_MOVIE_LAST_FRAME or SFMSOCK_MOVIE_FIRST_FRAME)
+	local endframe = args[2] and tonumber(args[2]) or (movie_reversed and SFMSOCK_MOVIE_FIRST_FRAME or SFMSOCK_MOVIE_LAST_FRAME)
+	local framerate = args[3] and tonumber(args[3]) or SFMSOCK_FRAME_RATE
+	printdebug(startframe, endframe, framerate)
+	PlayFrameData(startframe, endframe, framerate, movie_reversed)
+end)
+
+concommand.Add("sfmsock_movie_reverse", function(ply, cmd, args)
+	movie_paused = false
+	movie_reversed = not movie_reversed
+	local framerate = args[1] and tonumber(args[1]) or SFMSOCK_FRAME_RATE
+	PlayFrameData(SFMSOCK_CURRENT_FRAME, movie_reversed and SFMSOCK_MOVIE_LAST_FRAME or SFMSOCK_MOVIE_FIRST_FRAME, framerate, movie_reversed)
+end)
+
+concommand.Add("sfmsock_movie_pause", function(ply, cmd, args)
+	if not timer.Exists("SFMSOCK_PlayFrameData") then
+		ply:PrintMessage(HUD_PRINTCONSOLE, "SFM SOCK is not playing a movie.")
+		return
+	end
+	PauseFrameData()
+end)
+
+concommand.Add("sfmsock_movie_resume", function(ply, cmd, args)
+	if not timer.Exists("SFMSOCK_PlayFrameData") then
+		ply:PrintMessage(HUD_PRINTCONSOLE, "SFM SOCK is not playing a movie.")
+		return
+	end
+	ResumeFrameData()
+end)
+
+concommand.Add("sfmsock_movie_togglepause", function(ply, cmd, args)
+	if not timer.Exists("SFMSOCK_PlayFrameData") then
+		ply:PrintMessage(HUD_PRINTCONSOLE, "SFM SOCK is not playing a movie.")
+		return
+	end
+	if movie_paused then
+		ResumeFrameData()
+	else
+		PauseFrameData()
+	end
+end)
+
+concommand.Add("sfmsock_movie_stop", function(ply, cmd, args)
+	if not timer.Exists("SFMSOCK_PlayFrameData") then
+		ply:PrintMessage(HUD_PRINTCONSOLE, "SFM SOCK is not playing a movie.")
+		return
+	end
+	StopFrameData()
+end)
+
+concommand.Add("sfmsock_movie_goto", function(ply, cmd, args)
+	if not args[1] then
+		ply:PrintMessage(HUD_PRINTCONSOLE, "Usage: sfmsock_movie_goto <frame>")
+		return
+	end
+	GoToFrameData(tonumber(args[1]))
+end)
+
+concommand.Add("sfmsock_goto_camera", function(ply, cmd, args)
+	if IsValid(SFMSOCK_CAMERA) then
+		ply:SetPos(SFMSOCK_CAMERA:GetPos())
+	end
+end)
+
+concommand.Add("sfmsock_movie_clear", function(ply, cmd, args)
+	ClearFrameData()
 end)

@@ -23,5 +23,6 @@ end
 if SERVER then
 	AddCSLuaFile("sfmsock/cl_init.lua")
 	AddCSLuaFile("sfmsock/sh_init.lua")
+	AddCSLuaFile("includes/modules/volumetric.lua") -- fake volumetric lua file
     include("sfmsock/init.lua")
 end

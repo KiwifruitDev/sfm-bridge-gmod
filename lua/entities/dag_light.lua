@@ -18,6 +18,12 @@ if CLIENT then
 	pcall(require, "volumetric") -- This module does not exist yet, future-proofing.
 end
 
+local function printdebug(...)
+	if GetConVar("sfmsock_debug", "0"):GetBool() then
+		print(...)
+	end
+end
+
 ENT.Base = "dag"
 ENT.Type = "anim"
 
@@ -121,7 +127,7 @@ function ENT:InitializeLight()
 	if self.lamp.SetVolumetric then
 		self.lamp:SetVolumetric(self:GetLightDagVolumetric())
 	elseif self:GetLightDagVolumetric() == true then -- binary module missing
-		print("[SFM SOCK] WARNING: Volumetric lighting is not supported on this server.")
+		printdebug("[SFM SOCK] WARNING: Volumetric lighting is not supported on this server.")
 	end
 	self.lamp:SetOrthographic(self:GetLightDagOrtho(), self:GetLightDagOrthoLeft(), self:GetLightDagOrthoTop(), self:GetLightDagOrthoRight(), self:GetLightDagOrthoBottom())
 	self.lamp:SetPos(self:GetPos())
