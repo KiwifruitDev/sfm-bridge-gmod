@@ -1,5 +1,5 @@
 /*
-	SFM SOCK Websocket Client for Garry's Mod
+	SFM Bridge for Garry's Mod
 	This software is licensed under the MIT License.
 	Copyright (c) 2021 KiwifruitDev
 
@@ -12,17 +12,17 @@
 	SOFTWARE.
 */
 
--- initialize from sfmsock
+-- initialize from sfm_bridge
 
-include("sfmsock/sh_init.lua")
+include("sfmbridge/sh_init.lua")
 
 if CLIENT then
-    include("sfmsock/cl_init.lua")
+    include("sfmbridge/cl_init.lua")
 end
 
 if SERVER then
-	AddCSLuaFile("sfmsock/cl_init.lua")
-	AddCSLuaFile("sfmsock/sh_init.lua")
+	AddCSLuaFile("sfmbridge/cl_init.lua")
+	AddCSLuaFile("sfmbridge/sh_init.lua")
 	AddCSLuaFile("includes/modules/volumetric.lua") -- fake volumetric lua file
-    include("sfmsock/init.lua")
+    include("sfmbridge/init.lua")
 end

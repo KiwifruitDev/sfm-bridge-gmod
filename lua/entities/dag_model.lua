@@ -1,5 +1,5 @@
 /*
-	SFM SOCK Websocket Client for Garry's Mod
+	SFM Bridge for Garry's Mod
 	This software is licensed under the MIT License.
 	Copyright (c) 2021 KiwifruitDev
 
@@ -22,10 +22,10 @@ ENT.AdminOnly = true
 
 ENT.PrintName = "Model Dag"
 ENT.Author = "KiwiFruitDev"
-ENT.Category = "SFM SOCK"
+ENT.Category = "SFM Bridge"
 ENT.Purpose = "Used to represent Source Filmmaker models within Garry's Mod."
 ENT.Instructions = "Intended for internal use only."
-ENT.Contact = "https://github.com/TeamPopplio/sfmsock-wsc-gmod"
+ENT.Contact = "https://github.com/TeamPopplio/sfm-bridge-gmod"
 
 ENT.DisableDuplicator = true
 ENT.DoNotDuplicate = true

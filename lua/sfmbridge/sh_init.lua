@@ -1,5 +1,5 @@
 /*
-	SFM SOCK Websocket Client for Garry's Mod
+	SFM Bridge for Garry's Mod
 	This software is licensed under the MIT License.
 	Copyright (c) 2021 KiwifruitDev
 
@@ -12,6 +12,6 @@
 	SOFTWARE.
 */
 
-SFMSOCK_VERSION = "1.0.0"
+SFM_BRIDGE_VERSION = "1.0.2"
 
-print("=== SFM SOCK Websocket Client for Garry's Mod v" .. SFMSOCK_VERSION .. " ===");
+print("=== SFM Bridge for Garry's Mod v" .. SFM_BRIDGE_VERSION .. " ===");

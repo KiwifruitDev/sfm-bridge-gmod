@@ -1,5 +1,5 @@
 /*
-	SFM SOCK Websocket Client for Garry's Mod
+	SFM Bridge for Garry's Mod
 	This software is licensed under the MIT License.
 	Copyright (c) 2021 KiwifruitDev
 
@@ -19,7 +19,7 @@ if CLIENT then
 end
 
 local function printdebug(...)
-	if GetConVar("sfmsock_debug", "0"):GetBool() then
+	if GetConVar("sfm_bridge_debug", "0"):GetBool() then
 		print(...)
 	end
 end
@@ -32,10 +32,10 @@ ENT.AdminOnly = true
 
 ENT.PrintName = "Light Dag"
 ENT.Author = "KiwiFruitDev"
-ENT.Category = "SFM SOCK"
+ENT.Category = "SFM Bridge"
 ENT.Purpose = "Used to represent Source Filmmaker lighting within Garry's Mod."
 ENT.Instructions = "Intended for internal use only."
-ENT.Contact = "https://github.com/TeamPopplio/sfmsock-wsc-gmod"
+ENT.Contact = "https://github.com/TeamPopplio/sfm-bridge-gmod"
 
 ENT.DisableDuplicator = true
 ENT.DoNotDuplicate = true
@@ -82,20 +82,20 @@ function ENT:SetupDataTables()
 		self:SetLightDagConstantAttenuation(0)
 		self:SetLightDagLinearAttenuation(0)
 		self:SetLightDagQuadraticAttenuation(1500)
-		self:SetLightDagTextureFrame(0) -- exclusive to SFM SOCK
+		self:SetLightDagTextureFrame(0) -- exclusive to SFM Bridge
 		self:SetLightDagColorR(255)
 		self:SetLightDagColorG(255)
 		self:SetLightDagColorB(255)
 		self:SetLightDagColorA(255)
 		self:SetLightDagBrightness(500)
-		self:SetLightDagOrthoLeft(100) -- exclusive to SFM SOCK
-		self:SetLightDagOrthoTop(100) -- exclusive to SFM SOCK
-		self:SetLightDagOrthoRight(100) -- exclusive to SFM SOCK
-		self:SetLightDagOrthoBottom(100) -- exclusive to SFM SOCK
+		self:SetLightDagOrthoLeft(100) -- exclusive to SFM Bridge
+		self:SetLightDagOrthoTop(100) -- exclusive to SFM Bridge
+		self:SetLightDagOrthoRight(100) -- exclusive to SFM Bridge
+		self:SetLightDagOrthoBottom(100) -- exclusive to SFM Bridge
 		self:SetLightDagCastShadows(true)
 		self:SetLightDagVolumetric(false)
 		self:SetLightDagVisible(true)
-		self:SetLightDagOrtho(false) -- exclusive to SFM SOCK
+		self:SetLightDagOrtho(false) -- exclusive to SFM Bridge
 	end
 end
 
@@ -127,7 +127,7 @@ function ENT:InitializeLight()
 	if self.lamp.SetVolumetric then
 		self.lamp:SetVolumetric(self:GetLightDagVolumetric())
 	elseif self:GetLightDagVolumetric() == true then -- binary module missing
-		printdebug("[SFM SOCK] WARNING: Volumetric lighting is not supported on this server.")
+		printdebug("[SFM Bridge] WARNING: Volumetric lighting is not supported on this server.")
 	end
 	self.lamp:SetOrthographic(self:GetLightDagOrtho(), self:GetLightDagOrthoLeft(), self:GetLightDagOrthoTop(), self:GetLightDagOrthoRight(), self:GetLightDagOrthoBottom())
 	self.lamp:SetPos(self:GetPos())

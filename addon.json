@@ -1,5 +1,5 @@
 {
-	"title"		:	"SFM SOCK: Send SFM frames to Garry's Mod",
+	"title"		:	"SFM Bridge for Garry's Mod",
 	"type"		:	"gamemode",
 	"tags"		:	[ "scenic", "movie" ],
 	"ignore"	:

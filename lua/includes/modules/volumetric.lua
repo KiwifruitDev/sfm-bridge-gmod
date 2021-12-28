@@ -1,5 +1,5 @@
 /*
-	SFM SOCK Websocket Client for Garry's Mod
+	SFM Bridge for Garry's Mod
 	This software is licensed under the MIT License.
 	Copyright (c) 2021 KiwifruitDev
 
