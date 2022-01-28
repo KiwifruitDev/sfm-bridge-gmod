@@ -34,4 +34,5 @@ ENT.IsModelDag = true
 
 function ENT:Draw()
     self:DrawModel()
+    self:CreateShadow()
 end 
